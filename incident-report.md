@@ -97,18 +97,6 @@ Repeated successful RDP Event ID `4624` records were also observed at 15:27:14 a
 
 Kali scanned selected Windows management, file-sharing, and remote-access ports.
 
-![Nmap scan](screenshots/01-nmap-scan.png)
-
-**Observed Suricata events**
-
-| Time | Source | Destination | Port | Protocol |
-|---|---|---|---:|---|
-| 14:58:10.704 | `192.168.10.10` | `192.168.20.20` | 139 | TCP |
-| 14:58:10.705 | `192.168.10.10` | `192.168.20.20` | 135 | TCP |
-| 14:58:11.719 | `192.168.10.10` | `192.168.20.20` | 3389 | TCP |
-| 14:58:15.727 | `192.168.10.10` | `192.168.20.20` | 5985 | TCP |
-| 14:58:15.735 | `192.168.10.10` | `192.168.20.20` | 445 | TCP |
-
 The activity is consistent with targeted network-service discovery.
 
 **Splunk detection**
@@ -121,23 +109,13 @@ dest_port IN (135,139,445,3389,5985)
 | table _time event_type src_ip dest_ip dest_port proto app_proto alert.signature
 | sort _time
 ```
+<img width="975" height="550" alt="image" src="https://github.com/user-attachments/assets/e0ec6442-f899-4344-9659-7e29c4518c49" />
 
 ---
 
 ### 5.2 Failed RDP Authentication
 
 Three failed logins were recorded before successful access.
-
-![Failed RDP logins](screenshots/02-failed-rdp-aug2.png)
-
-| Time | User | Source IP | Failure reason | Event ID |
-|---|---|---|---|---:|
-| 15:11:12.014 | `victimuser` | `192.168.10.10` | Unknown username or bad password | 4625 |
-| 15:11:16.259 | `victimuser` | `192.168.10.10` | Unknown username or bad password | 4625 |
-| 15:11:18.490 | `victimuser` | `192.168.10.10` | Unknown username or bad password | 4625 |
-
-**Status:** `0xC000006D`  
-**Sub-status:** `0xC000006A`
 
 **Splunk detection**
 
@@ -149,19 +127,13 @@ index=* source="WinEventLog:Security" EventCode=4625
 | table _time User SourceIP Logon_Type Failure_Reason Status Sub_Status EventCode
 | sort _time
 ```
+<img width="975" height="588" alt="image" src="https://github.com/user-attachments/assets/33d71be5-898b-45fd-b6e1-61e16acf31db" />
 
 ---
 
 ### 5.3 Successful RDP Access
 
 A successful RemoteInteractive logon followed the failed attempts.
-
-![Successful RDP access](screenshots/03-successful-rdp.png)
-
-| Time | User | Source IP | Logon Type | Event ID |
-|---|---|---|---:|---:|
-| 15:11:44.420 | `victimuser` | `192.168.10.10` | 10 | 4624 |
-
 Logon Type `10` is consistent with an RDP session.
 
 **Splunk detection**
@@ -175,20 +147,13 @@ index=* source="WinEventLog:Security" EventCode=4624
 | table _time User SourceIP RDPLogonType EventCode
 | sort _time
 ```
+<img width="975" height="497" alt="image" src="https://github.com/user-attachments/assets/a5d58c9c-59ad-446a-a282-c021db047406" />
 
 ---
 
 ### 5.4 System and Account Discovery
 
 PowerShell collected the logged-in identity, hostname, network configuration, local users, and running processes.
-
-![System discovery](screenshots/04-system-discovery.png)
-
-**Observed command**
-
-```powershell
-powershell.exe -NoProfile -Command "Write-Output 'SOC-LAB-DISCOVERY-START'; whoami; hostname; ipconfig; Get-LocalUser; Get-Process | Select-Object -First 10; Write-Output 'SOC-LAB-DISCOVERY-END'"
-```
 
 **Splunk detection — parent PowerShell process**
 
@@ -207,6 +172,7 @@ index=* source="WinEventLog:Microsoft-Windows-Sysmon/Operational" EventCode=1
 | table _time EventCode User Image ParentImage CommandLine
 | sort _time
 ```
+<img width="975" height="403" alt="image" src="https://github.com/user-attachments/assets/49c86a2f-c1e3-42bf-944a-ae1a99774d73" />
 
 ---
 
@@ -229,6 +195,7 @@ index=* source="WinEventLog:Microsoft-Windows-PowerShell/Operational" EventCode=
 | table _time host EventCode PowerShellCommand
 | sort _time
 ```
+<img width="975" height="592" alt="image" src="https://github.com/user-attachments/assets/296ae8cf-54a1-4edb-80e7-e70c2c541747" />
 
 **Analyst assessment:** The script was harmless, but `ExecutionPolicy Bypass` is a high-value detection indicator because it is commonly used to run scripts outside normal policy controls.
 
@@ -253,6 +220,7 @@ index=* source="WinEventLog:Microsoft-Windows-PowerShell/Operational" EventCode=
 | table _time host DetectedActions
 | sort _time
 ```
+<img width="975" height="506" alt="image" src="https://github.com/user-attachments/assets/daef9d9b-b1e7-4d35-a15b-c731e0137cee" />
 
 **Analyst assessment:** In production, an unexpected task launching PowerShell at logon should be treated as potential persistence.
 
@@ -279,6 +247,8 @@ dest_port=8000
 | table _time Stage src_ip dest_ip dest_port proto event_type app_proto URI
 | sort _time
 ```
+<img width="975" height="443" alt="image" src="https://github.com/user-attachments/assets/e95bf0bd-dd34-43ea-8693-ff5c8ad605c5" />
+
 
 **Analyst assessment:** This was a controlled beacon simulation, not actual malware C2. In production, a workstation sending identifying information to an unusual internal or external HTTP listener would require investigation and containment.
 
