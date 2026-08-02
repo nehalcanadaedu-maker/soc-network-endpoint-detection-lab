@@ -96,7 +96,6 @@ Repeated successful RDP Event ID `4624` records were also observed at 15:27:14 a
 ### 4.1 Network Reconnaissance
 
 Kali scanned selected Windows management, file-sharing, and remote-access ports. Suricata recorded flows to ports `135`, `139`, `445`, `3389`, and `5985`.
-
 The activity is consistent with targeted network-service discovery.
 
 <img width="975" height="550" alt="Splunk results showing Suricata reconnaissance flows" src="https://github.com/user-attachments/assets/e0ec6442-f899-4344-9659-7e29c4518c49" />
@@ -107,15 +106,6 @@ The activity is consistent with targeted network-service discovery.
 
 Three failed authentication attempts were recorded for `victimuser` from `192.168.10.10`.
 
-| Time | Event ID | Result |
-|---|---:|---|
-| 15:11:12.014 | 4625 | Bad password |
-| 15:11:16.259 | 4625 | Bad password |
-| 15:11:18.490 | 4625 | Bad password |
-
-**Status:** `0xC000006D`  
-**Sub-status:** `0xC000006A`
-
 <img width="975" height="588" alt="Splunk results showing three failed RDP authentication events" src="https://github.com/user-attachments/assets/33d71be5-898b-45fd-b6e1-61e16acf31db" />
 
 ---
@@ -123,12 +113,6 @@ Three failed authentication attempts were recorded for `victimuser` from `192.16
 ### 4.3 Successful RDP Access
 
 A successful RemoteInteractive logon followed the failed attempts.
-
-| Time | User | Source IP | Logon Type | Event ID |
-|---|---|---|---:|---:|
-| 15:11:44.420 | `victimuser` | `192.168.10.10` | 10 | 4624 |
-
-Logon Type `10` is consistent with RDP access.
 
 <img width="975" height="497" alt="Splunk results showing successful RDP Logon Type 10" src="https://github.com/user-attachments/assets/a5d58c9c-59ad-446a-a282-c021db047406" />
 
@@ -138,16 +122,6 @@ Logon Type `10` is consistent with RDP access.
 
 PowerShell collected information about the victim system and user context.
 
-Observed commands included:
-
-- `whoami`
-- `hostname`
-- `ipconfig`
-- `Get-LocalUser`
-- `Get-Process`
-
-This exposed the current user, hostname, network configuration, local accounts, and running processes.
-
 <img width="975" height="403" alt="Splunk Sysmon results showing PowerShell discovery commands" src="https://github.com/user-attachments/assets/49c86a2f-c1e3-42bf-944a-ae1a99774d73" />
 
 ---
@@ -155,10 +129,6 @@ This exposed the current user, hostname, network configuration, local accounts, 
 ### 4.5 PowerShell Execution-Policy Bypass
 
 PowerShell Event ID `4104` recorded execution of a harmless lab script using an execution-policy bypass.
-
-| Time | Host | Event ID | Command |
-|---|---|---:|---|
-| 15:34:36.658 | `DESKTOP-17JMLSF` | 4104 | `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\SOC-LAB\stage3.ps1"` |
 
 The script was harmless, but `ExecutionPolicy Bypass` is a high-value detection indicator because it can be used to run scripts outside normal policy restrictions.
 
@@ -169,12 +139,6 @@ The script was harmless, but `ExecutionPolicy Bypass` is a high-value detection 
 ### 4.6 Scheduled-Task Persistence
 
 PowerShell activity showed the creation and execution of a scheduled task.
-
-| Time | Host | Detected actions |
-|---|---|---|
-| 15:35:44.596 | `DESKTOP-17JMLSF` | `New-ScheduledTaskAction` |
-| 15:35:44.597 | `DESKTOP-17JMLSF` | `New-ScheduledTaskTrigger`, `Register-ScheduledTask`, `Start-ScheduledTask` |
-
 In a production environment, an unexpected task launching PowerShell at logon should be treated as potential persistence.
 
 <img width="975" height="506" alt="Splunk results showing scheduled-task persistence commands" src="https://github.com/user-attachments/assets/daef9d9b-b1e7-4d35-a15b-c731e0137cee" />
@@ -184,12 +148,6 @@ In a production environment, an unexpected task launching PowerShell at logon sh
 ### 4.7 C2-Style HTTP Beacon
 
 The Windows victim initiated an outbound HTTP connection to a Kali-controlled listener.
-
-| Time | Source | Destination | Protocol | URI |
-|---|---|---|---|---|
-| 15:36:24.453 | `192.168.20.20` | `192.168.10.10:8000` | HTTP/TCP | `/?host=DESKTOP-17JMLSF&user=victimuser&stage=complete` |
-| 15:37:28.231 | `192.168.20.20` | `192.168.10.10:8000` | HTTP/TCP | Continued flow |
-
 This was a controlled beacon simulation, not actual malware command-and-control activity.
 
 <img width="975" height="443" alt="Splunk Suricata results showing the simulated HTTP beacon" src="https://github.com/user-attachments/assets/e95bf0bd-dd34-43ea-8693-ff5c8ad605c5" />
@@ -199,11 +157,6 @@ This was a controlled beacon simulation, not actual malware command-and-control 
 ### 4.8 Controlled Outbound Data Transfer
 
 Suricata recorded an outbound TCP connection from the Windows victim to the Kali system on port `9001`.
-
-| Time | Source | Destination | Protocol | Packets Sent | Bytes Sent | Bytes Received | Total Bytes |
-|---|---|---|---|---:|---:|---:|---:|
-| 15:44:06.953 | `192.168.20.20:61004` | `192.168.10.10:9001` | TCP | 6 | 3,045 | 186 | 3,231 |
-
 The flow confirms that data moved from the Windows victim to the Kali-controlled listener. Suricata flow metadata does not identify the exact file contents, so the event is documented as a **controlled outbound data transfer / simulated exfiltration**.
 
 <img width="975" height="481" alt="image" src="https://github.com/user-attachments/assets/830b5b8a-edd8-426c-b0a3-7cd5aea89a67" />
