@@ -164,14 +164,6 @@ index=* source="WinEventLog:Microsoft-Windows-Sysmon/Operational" EventCode=1
 | sort _time
 ```
 
-**Splunk detection — child discovery processes**
-
-```spl
-index=* source="WinEventLog:Microsoft-Windows-Sysmon/Operational" EventCode=1
-(Image="*\\whoami.exe" OR Image="*\\HOSTNAME.EXE" OR Image="*\\ipconfig.exe")
-| table _time EventCode User Image ParentImage CommandLine
-| sort _time
-```
 <img width="975" height="403" alt="image" src="https://github.com/user-attachments/assets/49c86a2f-c1e3-42bf-944a-ae1a99774d73" />
 
 ---
