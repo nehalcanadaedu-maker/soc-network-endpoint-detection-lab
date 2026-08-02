@@ -343,19 +343,6 @@ dest_port=9001
 soc-network-endpoint-detection-lab/
 ├── README.md
 ├── incident-report.md
-├── detections/
-│   ├── nmap-reconnaissance.spl
-│   ├── failed-rdp-logins.spl
-│   ├── successful-rdp-login.spl
-│   ├── system-account-discovery.spl
-│   ├── powershell-execution.spl
-│   ├── scheduled-task-persistence.spl
-│   ├── archive-creation.spl
-│   ├── c2-http-beacon.spl
-│   └── outbound-data-transfer.spl
-├── screenshots/
-└── diagrams/
-    └── network-architecture.png
 ```
 
 ---
