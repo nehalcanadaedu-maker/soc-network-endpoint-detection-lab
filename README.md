@@ -30,9 +30,9 @@ The completed simulation covers:
 flowchart LR
     K[Kali Attacker\n192.168.10.10] -->|ATTACK-NET| U[Ubuntu SOC Gateway\n192.168.10.1 / 192.168.20.1]
     U -->|VICTIM-NET| W[Windows Victim\n192.168.20.20]
-    U --> S[Splunk Enterprise]
     U --> N[Suricata / Wireshark / tcpdump]
-    W -->|TCP 9997| S
+    N -->|eve.json and IDS alerts| S[Splunk Enterprise]
+    W -->|Windows logs via Universal Forwarder\nTCP 9997| S
 ```
 
 ### Network Segments
