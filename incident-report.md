@@ -11,6 +11,32 @@
 
 ---
 
+## Navigation
+
+- [1. Executive Summary](#1-executive-summary)
+- [2. Lab Architecture](#2-lab-architecture)
+- [3. Incident Scope and Assumptions](#3-incident-scope-and-assumptions)
+- [4. Chronological Timeline](#4-chronological-timeline)
+- [5. Evidence and Detection Results](#5-evidence-and-detection-results)
+  - [5.1 Network Reconnaissance](#51-network-reconnaissance)
+  - [5.2 Failed RDP Authentication](#52-failed-rdp-authentication)
+  - [5.3 Successful RDP Access](#53-successful-rdp-access)
+  - [5.4 System and Account Discovery](#54-system-and-account-discovery)
+  - [5.5 PowerShell Execution-Policy Bypass](#55-powershell-execution-policy-bypass)
+  - [5.6 Scheduled-Task Persistence](#56-scheduled-task-persistence)
+  - [5.7 C2-Style HTTP Beacon](#57-c2-style-http-beacon)
+- [6. Additional Lab Activity](#6-additional-lab-activity)
+- [7. Indicators and Artifacts](#7-indicators-and-artifacts)
+- [8. MITRE ATT&CK Mapping](#8-mitre-attck-mapping)
+- [9. Analyst Assessment](#9-analyst-assessment)
+- [10. Containment Recommendations](#10-containment-recommendations)
+- [11. Remediation and Detection Improvements](#11-remediation-and-detection-improvements)
+- [12. Conclusion](#12-conclusion)
+- [Appendix A — Controlled Simulation Commands](#appendix-a--controlled-simulation-commands)
+- [Appendix B — Screenshot Index](#appendix-b--screenshot-index)
+
+---
+
 ## 1. Executive Summary
 
 A controlled multi-stage intrusion was simulated from a Kali Linux attacker against a Windows victim. Traffic between both systems was routed through an Ubuntu SOC gateway running Suricata, Wireshark, tcpdump, and Splunk Enterprise.
